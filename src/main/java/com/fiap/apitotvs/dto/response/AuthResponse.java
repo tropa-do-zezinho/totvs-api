@@ -1,4 +1,4 @@
-package com.fiap.apitotvs.dto.auth.response;
+package com.fiap.apitotvs.dto.response;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
