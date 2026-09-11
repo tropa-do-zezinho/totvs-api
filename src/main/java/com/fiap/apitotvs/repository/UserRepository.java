@@ -1,6 +1,5 @@
 package com.fiap.apitotvs.repository;
 
-import com.fiap.apitotvs.entity.MeetRegister;
 import com.fiap.apitotvs.entity.User;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,7 +16,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
 
     @Query("SELECT u FROM User u WHERE u.name LIKE %?1%")
-    Page<User> findByNameContainingIgnoreCase(String username, Pageable pageable);
+    Optional<User> findByNameContainingIgnoreCase(String username);
 
     Page<User> findAll(Pageable pageable);
 }
