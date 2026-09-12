@@ -1,17 +1,74 @@
 services:
   postgres:
-    image: 'postgres:latest'
+    image: "postgres:16"
     environment:
-      - 'POSTGRES_DB=mydatabase'
-      - 'POSTGRES_PASSWORD=secret'
-      - 'POSTGRES_USER=myuser'
+      POSTGRES_DB: mydatabase
+      POSTGRES_PASSWORD: secret
+      POSTGRES_USER: myuser
     ports:
-      - '5432'
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser -d mydatabase"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  rabbitmq:
-    image: 'rabbitmq:latest'
-    environment:
-      - 'RABBITMQ_DEFAULT_PASS=secret'
-      - 'RABBITMQ_DEFAULT_USER=myuser'
+  # Azure Blob / Queue / Table emulator (Azurite)
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    command: >-
+      azurite
+      --blobHost 0.0.0.0
+      --queueHost 0.0.0.0
+      --tableHost 0.0.0.0
+      --location /data
+      --debug /data/debug.log
     ports:
-      - '5672'
+      - "10000:10000" # Blob
+      - "10001:10001" # Queue
+      - "10002:10002" # Table
+    volumes:
+      - azurite-data:/data
+    labels:
+      org.springframework.boot.ignore: "true"
+
+  # SQL dependency required by the Service Bus emulator
+  # Ignored by Spring Boot so it does not compete with Postgres as DataSource
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "YourStrong!Passw0rd"
+    ports:
+      - "1433:1433"
+    volumes:
+      - mssql-data:/var/opt/mssql
+    labels:
+      org.springframework.boot.ignore: "true"
+
+  # Official Azure Service Bus emulator
+  # Host AMQP on 5673 to avoid conflict with RabbitMQ on 5672
+  servicebus-emulator:
+    image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
+    pull_policy: always
+    volumes:
+      - ./docker/servicebus/Config.json:/ServiceBus_Emulator/ConfigFiles/Config.json:ro
+    ports:
+      - "5673:5672" # AMQP
+      - "5300:5300" # health / management
+    environment:
+      SQL_SERVER: mssql
+      MSSQL_SA_PASSWORD: "YourStrong!Passw0rd"
+      ACCEPT_EULA: "Y"
+      SQL_WAIT_INTERVAL: 45
+      EMULATOR_HTTP_PORT: 5300
+    depends_on:
+      - mssql
+    labels:
+      org.springframework.boot.ignore: "true"
+volumes:
+  postgres-data:
+  azurite-data:
+  mssql-data:

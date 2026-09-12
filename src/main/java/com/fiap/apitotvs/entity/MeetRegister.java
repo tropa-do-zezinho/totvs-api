@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-@EqualsAndHashCode
+@EqualsAndHashCode(exclude = "user")
 public class MeetRegister {
 
     @Id
@@ -20,9 +20,16 @@ public class MeetRegister {
     private Long id;
 
     @NotBlank(message = "Blob URL is required")
+    @Column(name = "blob_url", nullable = false, length = 2048)
     private String blobUrl;
 
-    @ManyToOne
-    @JoinColumn(name = "user_id")
+    @Column(name = "file_name")
+    private String fileName;
+
+    @Column(name = "request_id", nullable = false, unique = true)
+    private String requestId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id", nullable = false)
     private User user;
 }
