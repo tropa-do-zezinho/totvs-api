@@ -1,8 +1,11 @@
 package com.fiap.apitotvs.dto.response;
 
+import com.fiap.apitotvs.enums.MeetRequestStatus;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.time.Instant;
 
 @Data
 @NoArgsConstructor
@@ -12,4 +15,8 @@ public class MeetRegisterResponse {
     private String requestId;
     private String fileName;
     private String blobUrl;
+    private MeetRequestStatus status;
+    private String errorMessage;
+    private Instant createdAt;
+    private Instant updatedAt;
 }

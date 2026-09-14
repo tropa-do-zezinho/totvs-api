@@ -37,7 +37,7 @@ public class User implements UserDetails {
     private Boolean isActive = true;
 
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
-    private ArrayList<MeetRegister> meetRegisters;
+    private List<MeetRegister> meetRegisters = new ArrayList<>();
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {

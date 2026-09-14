@@ -11,6 +11,7 @@ import com.fiap.apitotvs.dto.message.WorkerProcessMessage;
 import com.fiap.apitotvs.dto.response.MeetRegisterResponse;
 import com.fiap.apitotvs.entity.MeetRegister;
 import com.fiap.apitotvs.entity.User;
+import com.fiap.apitotvs.enums.MeetRequestStatus;
 import com.fiap.apitotvs.exception.BusinessException;
 import com.fiap.apitotvs.repository.MeetRegisterRepository;
 import jakarta.transaction.Transactional;
@@ -67,13 +68,23 @@ public class BlobService {
             meetRegister.setFileName(originalFilename);
             meetRegister.setRequestId(requestId);
             meetRegister.setUser(user);
+            meetRegister.setStatus(MeetRequestStatus.CRIADO);
             meetRegister = meetRegisterRepository.save(meetRegister);
 
-            serviceBusPublisher.publishWorkerProcess(
-                    new WorkerProcessMessage(requestId, sasUrl, originalFilename)
-            );
+            try {
+                serviceBusPublisher.publishWorkerProcess(
+                        new WorkerProcessMessage(requestId, sasUrl, originalFilename)
+                );
+                meetRegister.markAnalisando();
+                meetRegister = meetRegisterRepository.save(meetRegister);
+            } catch (BusinessException e) {
+                meetRegister.markFalha(e.getMessage());
+                meetRegisterRepository.save(meetRegister);
+                throw e;
+            }
 
-            log.info("Uploaded blob request_id={} userId={} file={}", requestId, user.getId(), originalFilename);
+            log.info("Uploaded blob request_id={} userId={} file={} status={}",
+                    requestId, user.getId(), originalFilename, meetRegister.getStatus());
             return toResponse(meetRegister);
         } catch (BusinessException e) {
             throw e;
@@ -109,7 +120,11 @@ public class BlobService {
                 meetRegister.getId(),
                 meetRegister.getRequestId(),
                 meetRegister.getFileName(),
-                meetRegister.getBlobUrl()
+                meetRegister.getBlobUrl(),
+                meetRegister.getStatus(),
+                meetRegister.getErrorMessage(),
+                meetRegister.getCreatedAt(),
+                meetRegister.getUpdatedAt()
         );
     }
 }

@@ -38,11 +38,13 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/auth/**").permitAll()
                         .requestMatchers("/api/public/**").permitAll()
+                        .requestMatchers("/api/v1/worker/**").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers("/ws-chat/**").permitAll() // WebSocket handshake - auth happens in STOMP
                         // CONNECT
                         .requestMatchers("/ws-chat-sockjs/**").permitAll() // SockJS endpoints including /info
+                        .requestMatchers("/api/insights/**", "/api/blobs/**").authenticated()
                         .anyRequest().authenticated())
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))

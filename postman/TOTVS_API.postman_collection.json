@@ -1,0 +1,341 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "TOTVS API",
+    "description": "Collection para testar a API FIAP/TOTVS.\n\nFluxo sugerido:\n1. Auth → Register (ou Login)\n2. Blobs → Upload file\n3. Blobs → List (copie o requestId)\n4. Worker → Receive insights (simula o callback do worker)\n5. Insights → List / Get by requestId\n\nO token JWT é salvo automaticamente após Register/Login na variável `token`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "requestId",
+      "value": "req-123"
+    },
+    {
+      "key": "userEmail",
+      "value": "teste@totvs.com"
+    },
+    {
+      "key": "userPassword",
+      "value": "senha123"
+    },
+    {
+      "key": "userName",
+      "value": "Usuario Teste"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Endpoints públicos de autenticação. Salva o JWT em `token`.",
+      "item": [
+        {
+          "name": "Register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.token) {",
+                  "    pm.collectionVariables.set('token', body.token);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{userName}}\",\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Cria um usuário e retorna JWT."
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.token) {",
+                  "    pm.collectionVariables.set('token', body.token);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{userEmail}}\",\n  \"password\": \"{{userPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Autentica e salva o JWT na variável `token`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Blobs",
+      "description": "Upload e listagem de arquivos. Requer JWT.",
+      "item": [
+        {
+          "name": "Upload file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "  const body = pm.response.json();",
+                  "  if (body.requestId) {",
+                  "    pm.collectionVariables.set('requestId', body.requestId);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "description": "Selecione um arquivo CSV/JSON/JSONL de reuniões",
+                  "type": "file",
+                  "src": []
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/blobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "blobs"]
+            },
+            "description": "Envia arquivo para o Blob Storage, cria MeetRegister e publica na fila.\nSalva `requestId` automaticamente."
+          },
+          "response": []
+        },
+        {
+          "name": "List blobs",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "  const body = pm.response.json();",
+                  "  if (Array.isArray(body) && body.length > 0 && body[0].requestId) {",
+                  "    pm.collectionVariables.set('requestId', body[0].requestId);",
+                  "  }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/blobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "blobs"]
+            },
+            "description": "Lista requests do usuário autenticado (inclui status: criado, analisando, processado, falha)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Insights",
+      "description": "Consulta dos insights persistidos. Requer JWT.",
+      "item": [
+        {
+          "name": "List insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/insights",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "insights"]
+            },
+            "description": "Lista resumos dos retornos do worker do usuário autenticado."
+          },
+          "response": []
+        },
+        {
+          "name": "Get insights by requestId",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/insights/{{requestId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "insights", "{{requestId}}"]
+            },
+            "description": "Detalhe completo dos insights vinculados ao `requestId`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Worker",
+      "description": "Callback público do worker (sem JWT). Use o mesmo `requestId` de um upload existente.",
+      "item": [
+        {
+          "name": "Receive insights (success)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{requestId}}"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "{{requestId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"meeting_insights.completed\",\n  \"schema_version\": \"1.0\",\n  \"request_id\": \"{{requestId}}\",\n  \"status\": \"concluido\",\n  \"sent_at_utc\": \"2026-09-13T14:00:00Z\",\n  \"insights\": {\n    \"schema_version\": \"1.1\",\n    \"gerado_em_utc\": \"2026-09-13T13:59:50Z\",\n    \"resumo\": {\n      \"status_pipeline\": \"concluido\",\n      \"qualidade_dados\": {\n        \"linhas_entrada\": 1174,\n        \"reunioes_unicas\": 1126,\n        \"duplicatas_identicas_removidas\": 48\n      },\n      \"totais\": {\n        \"reunioes\": 1126,\n        \"candidatas_llm\": 135,\n        \"selecionadas_llm\": 50,\n        \"concluidas_llm_rag\": 50,\n        \"pendentes_llm\": 0\n      }\n    },\n    \"reunioes\": [\n      {\n        \"schema_version\": \"1.1\",\n        \"id_meeting\": 823448,\n        \"metadata\": {\n          \"data\": \"2026-03-30 14:30:00\",\n          \"formato\": \"VIDEO\",\n          \"status\": \"COMPLETED\",\n          \"duracao\": \"00:57:02\",\n          \"uf\": \"SP\",\n          \"segmento\": \"MANUFATURA\",\n          \"faixa_faturamento\": \"SMB\",\n          \"nps\": 7\n        },\n        \"prioridade\": {\n          \"classificacao\": \"Alta prioridade\",\n          \"score_oportunidade\": 100,\n          \"score_churn\": 90,\n          \"score_ameaca_competitiva\": 100,\n          \"score_qualidade_reuniao\": 80,\n          \"score_prioridade_final\": 96,\n          \"alertas_criticos\": []\n        },\n        \"triagem\": {\n          \"candidato_llm\": true,\n          \"selecionado_llm\": true,\n          \"sinais_detectados\": {\n            \"produtos_totvs\": [],\n            \"concorrentes\": [],\n            \"dores\": [],\n            \"oportunidades\": [],\n            \"sinais_churn\": [],\n            \"budget_termos\": [],\n            \"budget_valores\": [],\n            \"stakeholders\": [],\n            \"proximos_passos\": []\n          },\n          \"recomendacao\": \"Próxima ação sugerida\",\n          \"evidencias\": []\n        },\n        \"status_analise\": \"concluida_llm_rag\",\n        \"analise_ia\": {\n          \"id_meeting\": 823448,\n          \"produtos_detectados\": [],\n          \"concorrentes\": [],\n          \"dores\": [],\n          \"sinais_oportunidade\": [],\n          \"sinais_risco\": [],\n          \"sentimento\": \"misto\",\n          \"budget\": {\n            \"status\": \"sem_valor_definido\",\n            \"valores_mencionados\": [],\n            \"observacao\": null\n          },\n          \"stakeholders\": [],\n          \"urgencia\": \"alta\",\n          \"evidencias\": [\n            {\n              \"tipo\": \"dor\",\n              \"trecho_id\": \"T01\",\n              \"trecho\": \"Trecho literal da reunião\",\n              \"interpretacao\": \"O que esse trecho comprova\"\n            }\n          ],\n          \"proxima_acao\": \"Próxima ação recomendada\",\n          \"recomendacoes_rag\": [],\n          \"fontes_rag_utilizadas\": [],\n          \"confianca_analise\": 92\n        },\n        \"rag\": {\n          \"contextos_recuperados\": [],\n          \"fontes_utilizadas\": []\n        },\n        \"modelo\": \"openai/gpt-oss-120b\",\n        \"versao_prompt\": \"4.0-gpt-oss-120b-evidence-ids\"\n      }\n    ]\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/worker/insights",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "worker", "insights"]
+            },
+            "description": "Simula o callback de sucesso do worker.\nO `request_id` precisa existir (gerado no Upload).\nMarca a request como `processado`."
+          },
+          "response": []
+        },
+        {
+          "name": "Receive insights (failure)",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{requestId}}"
+              },
+              {
+                "key": "X-Request-ID",
+                "value": "{{requestId}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"event_type\": \"meeting_insights.completed\",\n  \"schema_version\": \"1.0\",\n  \"request_id\": \"{{requestId}}\",\n  \"status\": \"falha\",\n  \"sent_at_utc\": \"2026-09-13T14:00:00Z\",\n  \"insights\": {\n    \"schema_version\": \"1.1\",\n    \"gerado_em_utc\": \"2026-09-13T13:59:50Z\",\n    \"resumo\": {\n      \"status_pipeline\": \"falha\"\n    },\n    \"reunioes\": []\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/worker/insights",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "v1", "worker", "insights"]
+            },
+            "description": "Simula callback de erro do worker. Marca a request como `falha`."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
