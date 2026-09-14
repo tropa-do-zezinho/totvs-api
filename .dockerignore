@@ -1,0 +1,9 @@
+.git
+.github
+target
+**/target
+.env
+.env.*
+compose.yaml
+docker/
+README.md
