@@ -14,6 +14,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -38,7 +40,9 @@ class WorkerInsightsControllerTest {
 
     @BeforeEach
     void setUp() {
-        mockMvc = MockMvcBuilders.standaloneSetup(new WorkerInsightsController(workerInsightsService))
+        WorkerInsightsController controller = new WorkerInsightsController(workerInsightsService);
+        ReflectionTestUtils.setField(controller, "expectedToken", "test-token");
+        mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
@@ -49,6 +53,7 @@ class WorkerInsightsControllerTest {
                 .thenReturn(new WorkerInsightPersistResponse("req-1", "persistido", 2));
 
         mockMvc.perform(post("/api/v1/worker/insights")
+                        .header("Authorization", "Bearer test-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(sampleEnvelope())))
                 .andExpect(status().isOk())
@@ -69,6 +74,39 @@ class WorkerInsightsControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(envelope)))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void receiveInsightsRetorna401SemToken() throws Exception {
+        mockMvc.perform(post("/api/v1/worker/insights")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(sampleEnvelope())))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(workerInsightsService);
+    }
+
+    @Test
+    void receiveInsightsRetorna401ComTokenInvalido() throws Exception {
+        mockMvc.perform(post("/api/v1/worker/insights")
+                        .header("Authorization", "Bearer wrong-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(sampleEnvelope())))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(workerInsightsService);
+    }
+
+    @Test
+    void receiveInsightsFalhaFechadoSemConfiguracao() throws Exception {
+        mockMvc = MockMvcBuilders.standaloneSetup(new WorkerInsightsController(workerInsightsService))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        mockMvc.perform(post("/api/v1/worker/insights")
+                        .header("Authorization", "Bearer test-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(sampleEnvelope())))
+                .andExpect(status().isServiceUnavailable());
+        verifyNoInteractions(workerInsightsService);
     }
 
     private WorkerInsightsEnvelopeRequest sampleEnvelope() {
