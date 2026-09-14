@@ -172,9 +172,9 @@
               "formdata": [
                 {
                   "key": "file",
-                  "description": "Selecione um arquivo CSV/JSON/JSONL de reuniões",
+                  "description": "Clique em Select Files e escolha UM arquivo (CSV/JSON/JSONL). Não selecione pasta.",
                   "type": "file",
-                  "src": []
+                  "src": null
                 }
               ]
             },
