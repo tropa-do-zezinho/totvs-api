@@ -71,6 +71,7 @@ class WorkerInsightsControllerTest {
         envelope.setRequestId("req-x");
 
         mockMvc.perform(post("/api/v1/worker/insights")
+                        .header("Authorization", "Bearer test-token")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(envelope)))
                 .andExpect(status().isNotFound());
