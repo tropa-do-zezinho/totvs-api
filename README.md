@@ -24,8 +24,8 @@ API Spring Boot responsável por autenticação de usuários, upload de arquivos
 A API atua como orquestradora entre o frontend e o Worker de análise:
 
 1. O usuário autentica e faz upload de um arquivo (CSV/JSON/JSONL).
-2. A API grava o arquivo no Azure Blob Storage (Azurite em local), cria um registro com `request_id` e publica uma mensagem na fila `meet-process`.
-3. O Worker processa o arquivo e devolve os insights via `POST /api/v1/worker/insights`.
+2. A API tenta gravar no Azure Blob Storage e publicar na fila `meet-process`. Se Blob ou Service Bus estiverem indisponíveis, aplica insights mockados na hora (mesmo contrato do worker) e marca `processado`.
+3. Com Azure no ar, o Worker processa o arquivo e devolve os insights via `POST /api/v1/worker/insights`.
 4. O frontend consulta o status das requests e os insights persistidos.
 
 O vínculo entre envio e retorno é o **`request_id`**.
@@ -89,11 +89,29 @@ Na pasta `totvs-api`:
 ./mvnw spring-boot:run
 ```
 
-O Spring Boot sobe automaticamente os serviços do `compose.yaml` (Postgres, Azurite, MSSQL e Service Bus emulator). A API fica em:
+Por padrão (mesmo padrão do `totvs-cli`) o Compose sobe **apenas o Postgres**. A API fica em:
 
 ```text
 http://localhost:8080
 ```
+
+Se Azurite ou Service Bus não estiverem no ar, o upload **não falha**: a API grava o `MeetRegister`, persiste insights mockados (mesmo contrato do worker) e devolve `status: processado`.
+
+### Emulators Azure (opcional)
+
+Para testar Blob + fila de verdade localmente:
+
+```bash
+DOCKER_COMPOSE_PROFILES=azure ./mvnw spring-boot:run
+```
+
+Ou só a infra, sem a API:
+
+```bash
+docker compose --profile azure up -d
+```
+
+Isso sobe Azurite (`10000`), MSSQL (`1433`) e Service Bus emulator (`5673` / health `5300`).
 
 Para apenas compilar:
 
@@ -101,7 +119,7 @@ Para apenas compilar:
 ./mvnw compile -DskipTests
 ```
 
-> O Service Bus emulator pode demorar na primeira subida (depende do MSSQL). O timeout de readiness está em `240s`.
+> Com o profile `azure`, o Service Bus emulator pode demorar na primeira subida (depende do MSSQL). O timeout de readiness está em `240s`.
 
 ---
 
@@ -112,6 +130,7 @@ Valores padrão em `src/main/resources/application.properties` (adequados para l
 | Variável                              | Descrição                         | Default local                |
 | ------------------------------------- | --------------------------------- | ---------------------------- |
 | `JWT_SECRET`                          | Segredo HS256 do JWT (≥ 32 chars) | chave de desenvolvimento     |
+| `DOCKER_COMPOSE_PROFILES`             | Profiles do Compose (`azure` = emulators) | vazio (só Postgres)   |
 | `AZURE_STORAGE_CONNECTION_STRING`     | Connection string do Blob         | Azurite `devstoreaccount1`   |
 | `AZURE_STORAGE_CONTAINER_NAME`        | Container de arquivos             | `reunioes`                   |
 | `AZURE_STORAGE_SAS_EXPIRY_HOURS`      | Validade da SAS URL               | `24`                         |
@@ -157,7 +176,7 @@ Cada upload gera um `MeetRegister` com status:
 | ------------ | -------------------------------------------------------------- |
 | `criado`     | Registro gravado após o upload                                 |
 | `analisando` | Mensagem publicada com sucesso no Service Bus                  |
-| `processado` | Worker respondeu com sucesso (`status: concluido`, etc.)       |
+| `processado` | Worker respondeu com sucesso, **ou** fallback mock (Azure off) |
 | `falha`      | Erro ao publicar na fila **ou** Worker retornou `falha`/`erro` |
 
 O frontend pode acompanhar o andamento via `GET /api/blobs` (campo `status`).
@@ -386,7 +405,7 @@ totvs-api/
 ├── pom.xml
 └── src/main/java/com/fiap/apitotvs/
     ├── controller/          # Auth, Blobs, Insights, Worker
-    ├── service/             # Regras de negócio + interfaces
+    ├── service/             # Blob, ServiceBus, MockInsightsFactory, interfaces
     ├── service/impl/        # Implementações
     ├── repository/          # Spring Data JPA
     ├── entity/              # User, MeetRegister, WorkerInsightResult, MeetingInsight

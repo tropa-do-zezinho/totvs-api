@@ -36,6 +36,8 @@ public class BlobService {
     private final AzureProperties azureProperties;
     private final MeetRegisterRepository meetRegisterRepository;
     private final ServiceBusPublisher serviceBusPublisher;
+    private final MockInsightsFactory mockInsightsFactory;
+    private final WorkerInsightsService workerInsightsService;
 
     public MeetRegisterResponse upload(MultipartFile file, User user) {
         if (file == null || file.isEmpty()) {
@@ -48,58 +50,83 @@ public class BlobService {
         String requestId = "req-" + UUID.randomUUID();
         String blobName = user.getId() + "/" + requestId + "-" + sanitizeFilename(originalFilename);
 
+        String blobUrl;
+        boolean blobUploaded;
         try {
-            BlobContainerClient containerClient = azureClients.blobContainerClient();
-            BlobClient blobClient = containerClient.getBlobClient(blobName);
-            BlobHttpHeaders headers = new BlobHttpHeaders();
-            if (StringUtils.hasText(file.getContentType())) {
-                headers.setContentType(file.getContentType());
-            }
-
-            blobClient.upload(file.getInputStream(), file.getSize(), true);
-            if (StringUtils.hasText(file.getContentType())) {
-                blobClient.setHttpHeaders(headers);
-            }
-
-            String sasUrl = generateSasUrl(blobClient);
-
-            MeetRegister meetRegister = new MeetRegister();
-            meetRegister.setBlobUrl(sasUrl);
-            meetRegister.setFileName(originalFilename);
-            meetRegister.setRequestId(requestId);
-            meetRegister.setUser(user);
-            meetRegister.setStatus(MeetRequestStatus.CRIADO);
-            meetRegister = meetRegisterRepository.save(meetRegister);
-
-            try {
-                serviceBusPublisher.publishWorkerProcess(
-                        new WorkerProcessMessage(requestId, sasUrl, originalFilename)
-                );
-                meetRegister.markAnalisando();
-                meetRegister = meetRegisterRepository.save(meetRegister);
-            } catch (BusinessException e) {
-                meetRegister.markFalha(e.getMessage());
-                meetRegisterRepository.save(meetRegister);
-                throw e;
-            }
-
-            log.info("Uploaded blob request_id={} userId={} file={} status={}",
-                    requestId, user.getId(), originalFilename, meetRegister.getStatus());
-            return toResponse(meetRegister);
+            blobUrl = uploadToAzureBlob(file, blobName);
+            blobUploaded = true;
         } catch (BusinessException e) {
-            throw e;
+            log.warn("Azure Blob unavailable for request_id={}: {}. Falling back to mock analysis.",
+                    requestId, e.getMessage());
+            blobUrl = "mock://local/" + blobName;
+            blobUploaded = false;
         } catch (IOException e) {
             throw new BusinessException("Failed to read uploaded file");
         } catch (Exception e) {
-            log.error("Blob upload failed: {}", e.getMessage(), e);
-            throw new BusinessException("Failed to upload file to Azure Blob Storage");
+            log.warn("Azure Blob upload failed for request_id={}: {}. Falling back to mock analysis.",
+                    requestId, e.getMessage());
+            blobUrl = "mock://local/" + blobName;
+            blobUploaded = false;
         }
+
+        MeetRegister meetRegister = new MeetRegister();
+        meetRegister.setBlobUrl(blobUrl);
+        meetRegister.setFileName(originalFilename);
+        meetRegister.setRequestId(requestId);
+        meetRegister.setUser(user);
+        meetRegister.setStatus(MeetRequestStatus.CRIADO);
+        meetRegister = meetRegisterRepository.save(meetRegister);
+
+        if (blobUploaded) {
+            try {
+                serviceBusPublisher.publishWorkerProcess(
+                        new WorkerProcessMessage(requestId, blobUrl, originalFilename)
+                );
+                meetRegister.markAnalisando();
+                meetRegister = meetRegisterRepository.save(meetRegister);
+                log.info("Uploaded blob request_id={} userId={} file={} status={}",
+                        requestId, user.getId(), originalFilename, meetRegister.getStatus());
+                return toResponse(meetRegister);
+            } catch (BusinessException e) {
+                log.warn("Azure Service Bus unavailable for request_id={}: {}. Applying mock insights.",
+                        requestId, e.getMessage());
+            }
+        }
+
+        return applyMockAnalysis(meetRegister, originalFilename);
     }
 
     public List<MeetRegisterResponse> listByUser(User user) {
         return meetRegisterRepository.findAllByUser_Id(user.getId()).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private String uploadToAzureBlob(MultipartFile file, String blobName) throws IOException {
+        BlobContainerClient containerClient = azureClients.blobContainerClient();
+        BlobClient blobClient = containerClient.getBlobClient(blobName);
+        BlobHttpHeaders headers = new BlobHttpHeaders();
+        if (StringUtils.hasText(file.getContentType())) {
+            headers.setContentType(file.getContentType());
+        }
+
+        blobClient.upload(file.getInputStream(), file.getSize(), true);
+        if (StringUtils.hasText(file.getContentType())) {
+            blobClient.setHttpHeaders(headers);
+        }
+        return generateSasUrl(blobClient);
+    }
+
+    private MeetRegisterResponse applyMockAnalysis(MeetRegister meetRegister, String fileName) {
+        String requestId = meetRegister.getRequestId();
+        log.info("Persisting mock insights for request_id={} file={}", requestId, fileName);
+        workerInsightsService.receiveInsights(mockInsightsFactory.buildSuccess(requestId, fileName));
+
+        MeetRegister refreshed = meetRegisterRepository.findByRequestId(requestId)
+                .orElse(meetRegister);
+        log.info("Mock analysis ready request_id={} status={}",
+                requestId, refreshed.getStatus());
+        return toResponse(refreshed);
     }
 
     private String generateSasUrl(BlobClient blobClient) {

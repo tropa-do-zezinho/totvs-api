@@ -1,3 +1,13 @@
+# Infra local
+#
+# Default (só Postgres): a API sobe rápido e, sem Azurite/Service Bus,
+# responde análises mockadas no upload.
+#
+# Emulators Azure (para testar Blob + fila de verdade):
+#   DOCKER_COMPOSE_PROFILES=azure ./mvnw spring-boot:run
+#   # ou
+#   docker compose --profile azure up -d
+#
 services:
   postgres:
     image: "postgres:16"
@@ -14,9 +24,13 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+    # JDBC vem de spring.datasource.* (não inferir connection pelo Docker)
+    labels:
+      org.springframework.boot.ignore: "true"
 
   # Azure Blob / Queue / Table emulator (Azurite)
   azurite:
+    profiles: ["azure"]
     image: mcr.microsoft.com/azure-storage/azurite:latest
     command: >-
       azurite
@@ -35,8 +49,8 @@ services:
       org.springframework.boot.ignore: "true"
 
   # SQL dependency required by the Service Bus emulator
-  # Ignored by Spring Boot so it does not compete with Postgres as DataSource
   mssql:
+    profiles: ["azure"]
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       ACCEPT_EULA: "Y"
@@ -51,6 +65,7 @@ services:
   # Official Azure Service Bus emulator
   # Host AMQP on 5673 to avoid conflict with RabbitMQ on 5672
   servicebus-emulator:
+    profiles: ["azure"]
     image: mcr.microsoft.com/azure-messaging/servicebus-emulator:latest
     pull_policy: always
     volumes:
@@ -68,6 +83,7 @@ services:
       - mssql
     labels:
       org.springframework.boot.ignore: "true"
+
 volumes:
   postgres-data:
   azurite-data:
