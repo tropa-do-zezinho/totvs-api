@@ -5,7 +5,9 @@ import com.azure.storage.blob.BlobContainerClient;
 import com.fiap.apitotvs.config.AzureClients;
 import com.fiap.apitotvs.config.AzureProperties;
 import com.fiap.apitotvs.dto.message.WorkerProcessMessage;
+import com.fiap.apitotvs.dto.request.worker.WorkerInsightsEnvelopeRequest;
 import com.fiap.apitotvs.dto.response.MeetRegisterResponse;
+import com.fiap.apitotvs.dto.response.WorkerInsightPersistResponse;
 import com.fiap.apitotvs.entity.MeetRegister;
 import com.fiap.apitotvs.entity.User;
 import com.fiap.apitotvs.enums.MeetRequestStatus;
@@ -23,6 +25,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import java.io.InputStream;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -31,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -47,6 +51,10 @@ class BlobServiceTest {
     private MeetRegisterRepository meetRegisterRepository;
     @Mock
     private ServiceBusPublisher serviceBusPublisher;
+    @Mock
+    private MockInsightsFactory mockInsightsFactory;
+    @Mock
+    private WorkerInsightsService workerInsightsService;
     @Mock
     private BlobContainerClient blobContainerClient;
     @Mock
@@ -106,10 +114,11 @@ class BlobServiceTest {
 
         verify(blobClient).upload(any(InputStream.class), anyLong(), anyBoolean());
         verify(serviceBusPublisher).publishWorkerProcess(any(WorkerProcessMessage.class));
+        verify(workerInsightsService, never()).receiveInsights(any());
     }
 
     @Test
-    void uploadMarcaFalhaQuandoServiceBusFalha() throws Exception {
+    void uploadAplicaMockQuandoServiceBusFalha() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file", "reunioes.json", "application/json", "{\"ok\":true}".getBytes());
 
@@ -127,13 +136,70 @@ class BlobServiceTest {
         doThrow(new BusinessException("queue down"))
                 .when(serviceBusPublisher).publishWorkerProcess(any(WorkerProcessMessage.class));
 
-        assertThrows(BusinessException.class, () -> blobService.upload(file, user));
+        WorkerInsightsEnvelopeRequest envelope = new WorkerInsightsEnvelopeRequest();
+        envelope.setRequestId("req-mock");
+        when(mockInsightsFactory.buildSuccess(anyString(), eq("reunioes.json"))).thenReturn(envelope);
+        when(workerInsightsService.receiveInsights(envelope))
+                .thenReturn(new WorkerInsightPersistResponse("req-mock", "persistido", 2));
+
+        MeetRegister processado = new MeetRegister();
+        processado.setId(1L);
+        processado.setRequestId("req-mock");
+        processado.setFileName("reunioes.json");
+        processado.setBlobUrl("http://blob/reunioes.json?sas=token");
+        processado.setStatus(MeetRequestStatus.PROCESSADO);
+        processado.setCreatedAt(Instant.now());
+        processado.setUpdatedAt(Instant.now());
+        when(meetRegisterRepository.findByRequestId(anyString())).thenReturn(Optional.of(processado));
+
+        MeetRegisterResponse response = blobService.upload(file, user);
+
+        assertEquals(MeetRequestStatus.PROCESSADO, response.getStatus());
+        verify(workerInsightsService).receiveInsights(envelope);
+        verify(meetRegisterRepository, never()).save(org.mockito.ArgumentMatchers.argThat(
+                m -> m != null && m.getStatus() == MeetRequestStatus.FALHA));
+    }
+
+    @Test
+    void uploadAplicaMockQuandoBlobIndisponivel() {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "reunioes.json", "application/json", "{\"ok\":true}".getBytes());
+
+        when(azureClients.blobContainerClient())
+                .thenThrow(new BusinessException("Failed to connect to Azure Blob Storage"));
+        when(meetRegisterRepository.save(any(MeetRegister.class))).thenAnswer(invocation -> {
+            MeetRegister saved = invocation.getArgument(0);
+            saved.setId(1L);
+            saved.setCreatedAt(Instant.now());
+            saved.setUpdatedAt(Instant.now());
+            return saved;
+        });
+
+        WorkerInsightsEnvelopeRequest envelope = new WorkerInsightsEnvelopeRequest();
+        when(mockInsightsFactory.buildSuccess(anyString(), eq("reunioes.json"))).thenReturn(envelope);
+        when(workerInsightsService.receiveInsights(envelope))
+                .thenReturn(new WorkerInsightPersistResponse("req-x", "persistido", 2));
+
+        MeetRegister processado = new MeetRegister();
+        processado.setId(1L);
+        processado.setRequestId("req-x");
+        processado.setFileName("reunioes.json");
+        processado.setBlobUrl("mock://local/42/req-x-reunioes.json");
+        processado.setStatus(MeetRequestStatus.PROCESSADO);
+        processado.setCreatedAt(Instant.now());
+        processado.setUpdatedAt(Instant.now());
+        when(meetRegisterRepository.findByRequestId(anyString())).thenReturn(Optional.of(processado));
+
+        MeetRegisterResponse response = blobService.upload(file, user);
+
+        assertEquals(MeetRequestStatus.PROCESSADO, response.getStatus());
+        assertTrue(response.getBlobUrl().startsWith("mock://local/"));
+        verify(serviceBusPublisher, never()).publishWorkerProcess(any());
+        verify(workerInsightsService).receiveInsights(envelope);
 
         ArgumentCaptor<MeetRegister> captor = ArgumentCaptor.forClass(MeetRegister.class);
-        verify(meetRegisterRepository, org.mockito.Mockito.atLeast(2)).save(captor.capture());
-        MeetRegister last = captor.getAllValues().getLast();
-        assertEquals(MeetRequestStatus.FALHA, last.getStatus());
-        assertEquals("queue down", last.getErrorMessage());
+        verify(meetRegisterRepository).save(captor.capture());
+        assertTrue(captor.getValue().getBlobUrl().startsWith("mock://local/"));
     }
 
     @Test
