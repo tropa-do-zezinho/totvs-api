@@ -1,4 +1,4 @@
-# Infra local — alinhado ao padrão do totvs-cli (Postgres sempre sobe).
+# Infra local
 #
 # Default (só Postgres): a API sobe rápido e, sem Azurite/Service Bus,
 # responde análises mockadas no upload.
